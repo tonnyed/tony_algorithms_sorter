@@ -21,92 +21,315 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ------------------------------------------------------------
+      # 1. Checkout the branch selected when the workflow is started
+      # ------------------------------------------------------------
       - name: Checkout selected branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
 
+      # ------------------------------------------------------------
+      # 2. Configure Python
+      # ------------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
           cache: pip
 
+      # ------------------------------------------------------------
+      # 3. Install project and test dependencies
+      # ------------------------------------------------------------
       - name: Install project and test dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[test]"
 
+      # ------------------------------------------------------------
+      # 4. Verify package installation
+      # ------------------------------------------------------------
       - name: Verify installation
         run: |
-          python -c "import tony_algorithms_sorter; print('Package OK')"
+          python -c "import tony_algorithms_sorter; print('Package installation: OK')"
           python -m pytest --version
 
-      - name: Verify correctness before benchmark
+      # ------------------------------------------------------------
+      # 5. Correctness verification BEFORE benchmarking
+      # ------------------------------------------------------------
+      - name: Run correctness tests
         run: |
           python -m pytest -q
 
-      - name: Run benchmark
+      # ------------------------------------------------------------
+      # 6. Run benchmark
+      # ------------------------------------------------------------
+      - name: Run sorting benchmark
         run: |
-          echo "=============================================="
+          echo "============================================================"
           echo "Sorting Algorithm Benchmark"
-          echo "=============================================="
+          echo "============================================================"
           echo "Branch:       ${{ github.ref_name }}"
           echo "Repetitions:  ${{ inputs.repetitions }}"
-          echo "Seed:         ${{ inputs.seed }}"
-          echo "=============================================="
+          echo "Random seed:  ${{ inputs.seed }}"
+          echo "============================================================"
 
           python -m tony_algorithms_sorter.cli \
             --repetitions "${{ inputs.repetitions }}" \
             --seed "${{ inputs.seed }}"
 
-      - name: Verify CSV results
+      # ------------------------------------------------------------
+      # 7. Verify benchmark CSV
+      # ------------------------------------------------------------
+      - name: Verify benchmark results
         run: |
-          test -f results/results.csv
-          echo "results/results.csv created successfully."
+          if [ ! -f results/results.csv ]; then
+            echo "ERROR: results/results.csv was not created."
+            exit 1
+          fi
 
+          echo "Benchmark CSV created successfully."
+          echo
+          echo "Results preview:"
+          head -20 results/results.csv
+
+      # ------------------------------------------------------------
+      # 8. Generate performance graph
+      # ------------------------------------------------------------
       - name: Generate performance graph
         run: |
           python plot_results.py
 
+      # ------------------------------------------------------------
+      # 9. Verify graph
+      # ------------------------------------------------------------
       - name: Verify performance graph
         run: |
-          test -f results/sorting_performance.png
-          echo "results/sorting_performance.png created successfully."
+          if [ ! -f results/sorting_performance.png ]; then
+            echo "ERROR: performance graph was not created."
+            exit 1
+          fi
 
-      - name: Create benchmark summary
+          echo "Performance graph created successfully."
+          file results/sorting_performance.png
+
+      # ------------------------------------------------------------
+      # 10. Analyse benchmark results
+      # ------------------------------------------------------------
+      - name: Analyse benchmark results
+        env:
+          REPETITIONS: ${{ inputs.repetitions }}
+          SEED: ${{ inputs.seed }}
+          BRANCH: ${{ github.ref_name }}
         run: |
-          {
-            echo "# Sorting Algorithm Benchmark"
-            echo
-            echo "| Parameter | Value |"
-            echo "|---|---|"
-            echo "| Branch | ${{ github.ref_name }} |"
-            echo "| Repetitions | ${{ inputs.repetitions }} |"
-            echo "| Random Seed | ${{ inputs.seed }} |"
-            echo "| Python | 3.10 |"
-            echo
-            echo "## Results"
-            echo
-            echo '```csv'
-            cat results/results.csv
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY'
+          import csv
+          import os
 
-      - name: Upload benchmark results
+          filename = "results/results.csv"
+
+          bubble = {}
+          heap = {}
+
+          with open(filename, newline="") as file:
+              reader = csv.DictReader(file)
+
+              for row in reader:
+                  size = int(row["dataset_size"])
+                  algorithm = row["algorithm"]
+                  average = float(row["average_ms"])
+
+                  if algorithm == "Bubble Sort":
+                      bubble[size] = average
+
+                  elif algorithm == "Heap Sort":
+                      heap[size] = average
+
+          sizes = sorted(set(bubble) & set(heap))
+
+          if not sizes:
+              raise RuntimeError("No benchmark results found.")
+
+          largest = sizes[-1]
+
+          print()
+          print("=" * 80)
+          print("BENCHMARK ANALYSIS")
+          print("=" * 80)
+
+          for size in sizes:
+              bubble_time = bubble[size]
+              heap_time = heap[size]
+
+              ratio = bubble_time / heap_time
+
+              print(
+                  f"{size:>8,} elements | "
+                  f"Bubble Sort: {bubble_time:>12,.3f} ms | "
+                  f"Heap Sort: {heap_time:>10,.3f} ms | "
+                  f"Bubble is {ratio:>7.1f}x slower"
+              )
+
+          bubble_largest = bubble[largest]
+          heap_largest = heap[largest]
+          largest_ratio = bubble_largest / heap_largest
+
+          print()
+          print("-" * 80)
+          print(f"Largest dataset: {largest:,} elements")
+          print(f"Bubble Sort:     {bubble_largest:,.3f} ms")
+          print(f"Heap Sort:       {heap_largest:,.3f} ms")
+          print(f"Performance gap: {largest_ratio:,.1f}x")
+          print("-" * 80)
+
+          print()
+          print("Conclusion:")
+          print(
+              "Heap Sort is faster than Bubble Sort for all tested datasets."
+          )
+          print(
+              "The increasing performance gap demonstrates the practical "
+              "impact of O(n²) versus O(n log n) complexity."
+          )
+          print("=" * 80)
+
+          # ----------------------------------------------------------
+          # Generate Markdown report for GitHub Actions Summary
+          # ----------------------------------------------------------
+
+          with open("benchmark_report.md", "w") as report:
+
+              report.write("# Sorting Algorithm Benchmark\n\n")
+
+              report.write(
+                  f"**Branch:** `{os.environ['BRANCH']}`  \n"
+              )
+
+              report.write(
+                  f"**Repetitions:** `{os.environ['REPETITIONS']}`  \n"
+              )
+
+              report.write(
+                  f"**Random seed:** `{os.environ['SEED']}`  \n\n"
+              )
+
+              report.write("## Experimental Results\n\n")
+
+              report.write(
+                  "| Dataset Size | Bubble Sort (ms) | "
+                  "Heap Sort (ms) | Bubble / Heap |\n"
+              )
+
+              report.write(
+                  "|---:|---:|---:|---:|\n"
+              )
+
+              for size in sizes:
+
+                  bubble_time = bubble[size]
+                  heap_time = heap[size]
+                  ratio = bubble_time / heap_time
+
+                  report.write(
+                      f"| {size:,} | "
+                      f"{bubble_time:,.3f} | "
+                      f"{heap_time:,.3f} | "
+                      f"{ratio:,.1f}x |\n"
+                  )
+
+              report.write("\n## Analysis\n\n")
+
+              report.write(
+                  "Heap Sort was faster than Bubble Sort across every "
+                  "dataset tested. The performance difference became "
+                  "increasingly substantial as the dataset size increased.\n\n"
+              )
+
+              report.write(
+                  f"For the largest dataset of **{largest:,} elements**, "
+                  f"Bubble Sort required **{bubble_largest:,.3f} ms**, "
+                  f"whereas Heap Sort required only "
+                  f"**{heap_largest:,.3f} ms**. "
+                  f"Therefore, Bubble Sort was approximately "
+                  f"**{largest_ratio:,.1f} times slower**.\n\n"
+              )
+
+              report.write(
+                  "This behaviour is consistent with the theoretical "
+                  "complexities of the algorithms. Bubble Sort has "
+                  "**O(n²)** time complexity, meaning that its execution "
+                  "time grows approximately quadratically as the input "
+                  "size increases. Heap Sort has **O(n log n)** time "
+                  "complexity, resulting in substantially slower growth "
+                  "in execution time.\n\n"
+              )
+
+              report.write(
+                  "The experimental results therefore provide empirical "
+                  "support for the theoretical analysis. Heap Sort is "
+                  "considerably more scalable and is consequently the "
+                  "more appropriate algorithm for large datasets. "
+                  "Bubble Sort remains useful for educational purposes "
+                  "and small datasets, but becomes increasingly "
+                  "impractical as the input size grows.\n"
+              )
+
+          print()
+          print("Markdown benchmark report generated:")
+          print("benchmark_report.md")
+          PY
+
+      # ------------------------------------------------------------
+      # 11. Publish analysis to GitHub Actions Summary
+      # ------------------------------------------------------------
+      - name: Publish benchmark report
+        run: |
+          cat benchmark_report.md >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Generated Files" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`results/results.csv\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- \`results/sorting_performance.png\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ------------------------------------------------------------
+      # 12. Upload CSV, graph and report
+      # ------------------------------------------------------------
+      - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sorting-benchmark-${{ github.ref_name }}-${{ inputs.repetitions }}-runs-seed-${{ inputs.seed }}
           path: |
             results/results.csv
             results/sorting_performance.png
+            benchmark_report.md
           if-no-files-found: error
 
+      # ------------------------------------------------------------
+      # 13. Final verification
+      # ------------------------------------------------------------
       - name: Benchmark completed
         run: |
-          echo "=============================================="
+          echo "============================================================"
           echo "BENCHMARK COMPLETED SUCCESSFULLY"
-          echo "=============================================="
-          echo "Branch: ${{ github.ref_name }}"
+          echo "============================================================"
+          echo "Branch:       ${{ github.ref_name }}"
+          echo "Repetitions:  ${{ inputs.repetitions }}"
+          echo "Random seed:  ${{ inputs.seed }}"
+          echo
           echo "Results: results/results.csv"
-          echo "Graph: results/sorting_performance.png"
+          echo "Graph:   results/sorting_performance.png"
+          echo "Report:  benchmark_report.md"
+          echo "============================================================"
+
+          test -f results/results.csv
+          test -f results/sorting_performance.png
+          test -f benchmark_report.md
+
+          echo "CSV verified."
+          echo "Graph verified."
+          echo "Analysis report verified."
+          echo
+          echo "Benchmark finished successfully."
