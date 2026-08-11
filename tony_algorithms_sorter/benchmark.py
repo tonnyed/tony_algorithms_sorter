@@ -25,9 +25,9 @@ def measure_sort(sort_function, data):
     return result, elapsed_ms
 
 
-def verify_result(expected, result):
-    """Verify that a sorting algorithm produced the expected output."""
-    return result == expected
+def verify_result(original, result):
+    """Verify that result is the correctly sorted version of original."""
+    return result == sorted(original)
 
 
 def run_single_test(data):
@@ -43,15 +43,15 @@ def run_single_test(data):
         data,
     )
 
-    heap_result, heap_time = measure_sort(
-        heap_sort,
-        data,
-    )
-
     if not verify_result(expected, bubble_result):
         raise AssertionError(
             "Bubble Sort produced an incorrect result."
         )
+
+    heap_result, heap_time = measure_sort(
+        heap_sort,
+        data,
+    )
 
     if not verify_result(expected, heap_result):
         raise AssertionError(
@@ -59,6 +59,42 @@ def run_single_test(data):
         )
 
     return bubble_time, heap_time
+
+
+def benchmark_dataset(data, repetitions=5):
+    """Benchmark both algorithms repeatedly on one dataset.
+
+    This function is useful for unit testing and for smaller
+    experimental datasets.
+
+    Args:
+        data: Dataset to sort.
+        repetitions: Number of times each algorithm is executed.
+
+    Returns:
+        Dictionary containing individual timings and averages.
+    """
+    if repetitions < 1:
+        raise ValueError("Repetitions must be at least 1.")
+
+    bubble_times = []
+    heap_times = []
+
+    for _ in range(repetitions):
+        bubble_time, heap_time = run_single_test(data)
+
+        bubble_times.append(bubble_time)
+        heap_times.append(heap_time)
+
+    bubble_average = sum(bubble_times) / len(bubble_times)
+    heap_average = sum(heap_times) / len(heap_times)
+
+    return {
+        "bubble_times": bubble_times,
+        "heap_times": heap_times,
+        "bubble_average_ms": bubble_average,
+        "heap_average_ms": heap_average,
+    }
 
 
 def run_experiment(
@@ -75,8 +111,16 @@ def run_experiment(
     Existing datasets are reused only when they contain exactly
     the requested number of elements. Empty or invalid datasets
     are automatically regenerated.
-    """
 
+    Args:
+        size: Number of elements in the dataset.
+        repetitions: Number of benchmark repetitions.
+        seed: Random seed used when generating the dataset.
+        dataset_directory: Directory used to store datasets.
+
+    Returns:
+        Dictionary containing timings and averages.
+    """
     if size <= 0:
         raise ValueError("Dataset size must be greater than zero.")
 
@@ -84,6 +128,7 @@ def run_experiment(
         raise ValueError("Repetitions must be at least 1.")
 
     dataset_path = Path(dataset_directory)
+
     dataset_path.mkdir(
         parents=True,
         exist_ok=True,
@@ -98,8 +143,7 @@ def run_experiment(
     except (FileNotFoundError, ValueError, TypeError):
         data = []
 
-    # If the dataset does not exist, is empty, or has the wrong
-    # number of elements, generate a new deterministic dataset.
+    # Generate a new dataset if necessary.
     if len(data) != size:
         data = generate_dataset(
             size,
@@ -129,13 +173,9 @@ def run_experiment(
         heap_times.append(heap_time)
 
     # Calculate arithmetic means.
-    bubble_average = (
-            sum(bubble_times) / len(bubble_times)
-    )
+    bubble_average = sum(bubble_times) / len(bubble_times)
 
-    heap_average = (
-            sum(heap_times) / len(heap_times)
-    )
+    heap_average = sum(heap_times) / len(heap_times)
 
     return {
         "dataset_size": size,
