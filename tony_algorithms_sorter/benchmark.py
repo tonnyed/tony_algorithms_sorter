@@ -7,11 +7,16 @@ from .csv_utils import read_dataset, write_dataset
 
 
 def measure_sort(sort_function, data):
-    """Measure sorting execution time in milliseconds."""
+    """Measure sorting execution time in milliseconds.
+
+    A copy of the dataset is made so that the caller's original
+    dataset is never modified by the sorting algorithm.
+    """
+    values = data.copy()
 
     start = time.perf_counter()
 
-    result = sort_function(data)
+    result = sort_function(values)
 
     end = time.perf_counter()
 
@@ -22,36 +27,33 @@ def measure_sort(sort_function, data):
 
 def verify_result(original, result):
     """Verify that a sorting algorithm produced correct output."""
-
     return result == sorted(original)
 
 
 def run_single_test(data):
-    """
-    Test both algorithms using exactly the same dataset.
+    """Run both sorting algorithms on identical input data.
 
-    Returns:
-        Bubble Sort and Heap Sort execution times.
+    Each algorithm receives an independent copy of the same
+    original dataset, providing a fair apple-to-apple comparison.
     """
-
     expected = sorted(data)
 
     bubble_result, bubble_time = measure_sort(
         bubble_sort,
-        data
+        data,
     )
 
     heap_result, heap_time = measure_sort(
         heap_sort,
-        data
+        data,
     )
 
-    if not verify_result(expected, bubble_result):
+    if not verify_result(data, bubble_result):
         raise AssertionError(
             "Bubble Sort produced an incorrect result."
         )
 
-    if not verify_result(expected, heap_result):
+    if not verify_result(data, heap_result):
         raise AssertionError(
             "Heap Sort produced an incorrect result."
         )
@@ -65,11 +67,10 @@ def run_experiment(
         seed=42,
         dataset_directory="data/datasets",
 ):
-    """
-    Run a benchmark for one dataset size.
+    """Run a benchmark for one dataset size.
 
-    The dataset is generated once and then reused for
-    every repetition, ensuring an apple-to-apple comparison.
+    The dataset is generated once and reused for every repetition.
+    Each sorting algorithm receives a fresh copy of that dataset.
     """
 
     dataset_file = (
@@ -103,7 +104,6 @@ def run_experiment(
     heap_times = []
 
     for _ in range(repetitions):
-
         bubble_time, heap_time = run_single_test(data)
 
         bubble_times.append(bubble_time)
