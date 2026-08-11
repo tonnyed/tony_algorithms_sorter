@@ -1,0 +1,108 @@
+name: Sorting Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      repetitions:
+        description: "Number of repetitions for each dataset"
+        required: true
+        default: "5"
+        type: string
+
+      seed:
+        description: "Random seed for reproducible datasets"
+        required: true
+        default: "42"
+        type: string
+
+jobs:
+  benchmark:
+    name: Benchmark Sorting Algorithms
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Verify correctness before benchmark
+        run: |
+          python -m pytest -q
+
+      - name: Run benchmark
+        run: |
+          echo "=============================================="
+          echo "Sorting Algorithm Benchmark"
+          echo "=============================================="
+          echo "Branch:       ${{ github.ref_name }}"
+          echo "Repetitions:  ${{ inputs.repetitions }}"
+          echo "Seed:         ${{ inputs.seed }}"
+          echo "=============================================="
+
+          python -m tony_algorithms_sorter.cli \
+            --repetitions "${{ inputs.repetitions }}" \
+            --seed "${{ inputs.seed }}"
+
+      - name: Verify CSV results
+        run: |
+          test -f results/results.csv
+          echo "results/results.csv created successfully."
+
+      - name: Generate performance graph
+        run: |
+          python plot_results.py
+
+      - name: Verify performance graph
+        run: |
+          test -f results/sorting_performance.png
+          echo "results/sorting_performance.png created successfully."
+
+      - name: Create benchmark summary
+        run: |
+          {
+            echo "# Sorting Algorithm Benchmark"
+            echo
+            echo "| Configuration | Value |"
+            echo "|---|---|"
+            echo "| Branch | ${{ github.ref_name }} |"
+            echo "| Repetitions | ${{ inputs.repetitions }} |"
+            echo "| Random Seed | ${{ inputs.seed }} |"
+            echo "| Python | 3.10 |"
+            echo
+            echo "## Experimental Results"
+            echo
+            echo '```csv'
+            cat results/results.csv
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorting-benchmark-${{ github.ref_name }}-${{ inputs.repetitions }}-runs-seed-${{ inputs.seed }}
+          path: |
+            results/results.csv
+            results/sorting_performance.png
+          if-no-files-found: error
+
+      - name: Benchmark completed
+        run: |
+          echo "=============================================="
+          echo "BENCHMARK COMPLETED"
+          echo "=============================================="
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Results: results/results.csv"
+          echo "Graph: results/sorting_performance.png"
+          echo "=============================================="
